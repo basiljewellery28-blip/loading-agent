@@ -1,0 +1,12 @@
+# LP Agent Lint Configuration
+
+[lint]
+# Factory date directories and machine timestamps are strictly local (South Africa Standard Time / SAST)
+# Failure handlers intentionally trap unexpected filesystem and subprocess exceptions to preserve factory uptime.
+ignore = [
+    "DTZ005",  # datetime.now() without tz argument
+    "DTZ007",  # datetime.strptime() without %z
+    "BLE001",  # Blind exception catching in resilience handlers
+    "S110",    # try-except-pass in fallback logging
+    "ISC004",  # Implicit string concatenation in collections
+]
