@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="LP Agent — Automated Build Plate Preparation for Flashforge WaxJet 51C" />
+  <title>LP Agent — Loading Prints</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- ── Header ──────────────────────────────────────────── -->
+    <header class="header" id="header">
+      <div class="header__brand">
+        <div class="header__logo">LP</div>
+        <div>
+          <div class="header__title">Loading Prints Agent</div>
+          <div class="header__subtitle">Flashforge WaxJet 51C • Build Plate Preparation</div>
+        </div>
+      </div>
+      <div class="header__status">
+        <div class="status-badge" id="status-netfabb">
+          <span class="status-dot"></span>
+          <span id="status-netfabb-text">Netfabb</span>
+        </div>
+        <div class="status-badge" id="status-printer">
+          <span class="status-dot"></span>
+          <span id="status-printer-text">235 × 138 × 100 mm</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ── Main Content ────────────────────────────────────── -->
+    <main class="main">
+
+      <!-- ── Sidebar (Control Panel) ───────────────────────── -->
+      <aside class="sidebar" id="sidebar">
+
+        <!-- Date Scanner Card -->
+        <div class="card" id="card-scanner">
+          <div class="card__header">
+            <span class="card__title">
+              <span class="card__title-icon">🔍</span> Scout — Date Scanner
+            </span>
+            <span class="card__badge" id="scanner-badge" style="background: var(--bg-elevated); color: var(--text-muted);">—</span>
+          </div>
+          <div class="card__body">
+            <div class="date-picker">
+              <input type="text" class="date-picker__input" id="date-input"
+                     placeholder="DD.MM.YYYY" autocomplete="off" />
+              <button class="btn btn--secondary btn--small" id="btn-today" title="Today">Today</button>
+              <button class="btn btn--primary btn--small" id="btn-scan" title="Scan folder">
+                ⚡ Scan
+              </button>
+            </div>
+            <div id="scan-progress" style="display:none;">
+              <div class="progress-bar"><div class="progress-bar__fill" id="scan-progress-fill" style="width:100%"></div></div>
+            </div>
+            <div id="parts-container" style="margin-top: 0.75rem;">
+              <div class="empty-state">
+                <div class="empty-state__icon">📂</div>
+                <div class="empty-state__text">Enter a date and click Scan<br/>to discover STL parts</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Strategy Card -->
+        <div class="card" id="card-strategy">
+          <div class="card__header">
+            <span class="card__title">
+              <span class="card__title-icon">🧠</span> Tactician — Strategy
+            </span>
+          </div>
+          <div class="card__body">
+            <div class="strategy-toggle" id="strategy-toggle">
+              <button class="strategy-toggle__option strategy-toggle__option--active"
+                      data-mode="auto" id="strat-auto">Auto</button>
+              <button class="strategy-toggle__option"
+                      data-mode="2d" id="strat-2d">2D Flat</button>
+              <button class="strategy-toggle__option"
+                      data-mode="3d" id="strat-3d">3D Pack</button>
+            </div>
+            <div id="strategy-info" style="margin-top: 0.6rem; font-size: 0.75rem; color: var(--text-muted);">
+              <strong>Auto</strong> — Tactician selects based on batch geometry & homogeneity.
+            </div>
+          </div>
+        </div>
+
+        <!-- Sentry Quality Card -->
+        <div class="card" id="card-sentry">
+          <div class="card__header">
+            <span class="card__title">
+              <span class="card__title-icon">🛡️</span> Sentry — Quality Gate
+            </span>
+          </div>
+          <div class="card__body">
+            <div class="quality-grid" id="quality-grid">
+              <div class="quality-item">
+                <div class="quality-item__value" id="q-envelope" style="color: var(--text-muted);">—</div>
+                <div class="quality-item__label">Envelope</div>
+              </div>
+              <div class="quality-item">
+                <div class="quality-item__value" id="q-collisions" style="color: var(--text-muted);">—</div>
+                <div class="quality-item__label">Collisions</div>
+              </div>
+              <div class="quality-item">
+                <div class="quality-item__value" id="q-clearance" style="color: var(--text-muted);">—</div>
+                <div class="quality-item__label">Buffer</div>
+              </div>
+              <div class="quality-item">
+                <div class="quality-item__value" id="q-parts" style="color: var(--text-muted);">—</div>
+                <div class="quality-item__label">Parts</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Plate Selector -->
+        <div class="card" id="card-plates" style="display: none;">
+          <div class="card__header">
+            <span class="card__title">
+              <span class="card__title-icon">📦</span> Marshal — Plates
+            </span>
+          </div>
+          <div class="card__body">
+            <div class="plate-tabs" id="plate-tabs"></div>
+            <div id="plate-info" style="font-size: 0.75rem; color: var(--text-secondary);"></div>
+          </div>
+        </div>
+
+        <!-- Action Toolbar -->
+        <div class="action-bar" id="action-bar">
+          <button class="btn btn--primary" id="btn-pack" disabled>
+            ⚡ Run Plate Pack
+          </button>
+          <button class="btn btn--gold" id="btn-open-netfabb" disabled>
+            🖥️ Open in Netfabb
+          </button>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn--secondary" id="btn-download" disabled style="flex:1;">
+              💾 Export STL
+            </button>
+            <button class="btn btn--secondary" id="btn-manifest" disabled style="flex:1;">
+              📋 Manifest
+            </button>
+          </div>
+        </div>
+
+      </aside>
+
+      <!-- ── 3D Viewport ───────────────────────────────────── -->
+      <section class="viewport-area" id="viewport-area">
+
+        <!-- Viewport Toolbar -->
+        <div class="viewport-toolbar" id="viewport-toolbar">
+          <button class="btn btn--small btn--active" id="view-iso" title="Isometric view">Iso</button>
+          <button class="btn btn--small" id="view-top" title="Top-down view">Top</button>
+          <button class="btn btn--small" id="view-front" title="Front view">Front</button>
+          <button class="btn btn--small" id="view-reset" title="Reset camera">Reset</button>
+        </div>
+
+        <!-- Three.js Canvas -->
+        <canvas id="viewport-canvas"></canvas>
+
+        <!-- Viewport Info Chips -->
+        <div class="viewport-info">
+          <div class="viewport-info__chip" id="info-dims">
+            📐 235 × 138 × 100 mm
+          </div>
+          <div class="viewport-info__chip" id="info-parts">
+            🔩 0 parts
+          </div>
+        </div>
+
+        <!-- 3D Tooltip -->
+        <div class="tooltip-3d" id="tooltip-3d">
+          <div class="tooltip-3d__title" id="tooltip-title">Part Name</div>
+          <div class="tooltip-3d__row" id="tooltip-dims">Size: — × — × — mm</div>
+          <div class="tooltip-3d__row" id="tooltip-pos">Pos: (—, —, —)</div>
+        </div>
+
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- Manifest Modal -->
+  <div class="manifest-overlay" id="manifest-overlay">
+    <div class="manifest-modal">
+      <div class="manifest-modal__title">
+        <span>📋 Plate Manifest</span>
+        <button class="btn btn--secondary btn--small" id="manifest-close">✕ Close</button>
+      </div>
+      <div id="manifest-content"></div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Three.js via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.164.1/examples/js/controls/OrbitControls.js"></script>
+
+  <!-- Application Logic -->
+  <script src="/static/app.js"></script>
+</body>
+</html>

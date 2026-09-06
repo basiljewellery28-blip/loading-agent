@@ -4,6 +4,7 @@ Usage:
     python agent_entry.py load [--date DD.MM.YYYY] [--mode auto|2d|3d] [--dry-run]
     python agent_entry.py verify --plate <path_to_merged_stl>
     python agent_entry.py status
+    python agent_entry.py ui [--port 8000] [--host 127.0.0.1]
 """
 
 from __future__ import annotations
@@ -69,6 +70,21 @@ def main() -> int:
     # Command: status
     subparsers.add_parser("status", help="Display machine configuration and environment status")
 
+    # Command: ui
+    ui_parser = subparsers.add_parser("ui", help="Launch the web-based visual plate staging UI")
+    ui_parser.add_argument(
+        "--port",
+        type=int,
+        default=4200,
+        help="Server port (default: 4200)",
+    )
+    ui_parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Server host address (default: 127.0.0.1)",
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -76,6 +92,22 @@ def main() -> int:
         return 0
 
     config = LPConfig()
+
+    if args.command == "ui":
+        import webbrowser
+
+        import uvicorn
+
+        from ui.server import app as ui_app
+
+        host = args.host
+        port = args.port
+        url = f"http://{host}:{port}"
+        print(f"\n  LP Agent UI starting at {url}")
+        print("  Press Ctrl+C to stop.\n")
+        webbrowser.open(url)
+        uvicorn.run(ui_app, host=host, port=port, log_level="info")
+        return 0
 
     if args.command == "status":
         printing_root = config.resolve_printing_root()

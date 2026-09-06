@@ -35,6 +35,14 @@ Automated 2D/3D Nesting & Build Plate Preparation Engine for Fine Jewelry Manufa
 
 ## Quick Start
 
+### Option 1: Web UI Dashboard (Recommended for PMs & Operators)
+```bat
+:: Launch the browser-based 3D control center
+python agent_entry.py ui --port 4200
+```
+Opens an interactive 3D platform with real-time collision telemetry, Netfabb integration, and plate switching at `http://localhost:4200`.
+
+### Option 2: Command Line (Production & Batch Scripting)
 ```bat
 :: Daily production run (scans today's date folder on Q:)
 python agent_entry.py load
@@ -53,6 +61,7 @@ python agent_entry.py load --mode 3d
 
 ## Documentation
 
+- **[GUIDE.md](file:///c:/Users/21824341/Desktop/Dev%20Projects/LP%20Agent/GUIDE.md)** — **Complete User & Architecture Guide (How to use & how it works)**
+- [AGENTS.md](file:///c:/Users/21824341/Desktop/Dev%20Projects/LP%20Agent/AGENTS.md) — Subagent Team Responsibilities (Scout, Tactician, Vulcan, Sentry, Marshal)
 - [MASTER_PROMPT.md](file:///c:/Users/21824341/Desktop/Dev%20Projects/LP%20Agent/MASTER_PROMPT.md) — Master Architecture, Algorithmic Logic, and Context Engineering Directive
 - [CLAUDE.md](file:///c:/Users/21824341/Desktop/Dev%20Projects/LP%20Agent/CLAUDE.md) — Operating Manual & Development Guardrails
-- [AGENTS.md](file:///c:/Users/21824341/Desktop/Dev%20Projects/LP%20Agent/AGENTS.md) — Subagent Team Responsibilities
