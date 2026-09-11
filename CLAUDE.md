@@ -28,6 +28,7 @@ LP Agent is the 3rd pillar of the Browns Jewellery production automation line:
 | **LP-G7** | **MUST** be green on `ruff check .` and `pytest -q` before opening PR or finishing tasks. | CI & local preflight verification. |
 | **LP-G8** | **MUST** support `--dry-run` to preview packing and plate splits without writing files. | CLI runner `agent_entry.py`. |
 | **LP-G9** | **MUST** verify output files exist and are non-empty on disk before reporting success. | `manifest_writer.py` and `orchestrator.py`. |
+| **LP-G10** | **MUST** monitor build plate sizes against the safe guideline budget (150 MB – 600 MB typical, warn on >1GB). Encourage pre-merge mesh optimization while strictly preserving 100% of fine jewelry details without restricting agents. | `config/lp_config.py` + `native_packer.py` / `netfabb_runner.py` |
 
 ---
 

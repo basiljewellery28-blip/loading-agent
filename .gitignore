@@ -53,3 +53,8 @@ Desktop.ini
 # Logs
 *.log
 
+# Local agent cache and settings
+.cache/
+.claude/
+
+

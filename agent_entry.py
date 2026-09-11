@@ -13,7 +13,14 @@ import argparse
 import sys
 from pathlib import Path
 
-from config.lp_config import LPConfig, StrategyMode
+from config.lp_config import MIN_CLEARANCE_MM, LPConfig, StrategyMode
+from core.height_policy import (
+    DEFAULT_UNATTENDED_POLICY,
+    EXCEED,
+    FAIL,
+    SPLIT,
+    HeightCapExceeded,
+)
 from pipeline.orchestrator import LPOrchestrator
 from utils.logger import Logger
 
@@ -44,7 +51,7 @@ def main() -> int:
         "--clearance",
         type=float,
         default=2.0,
-        help="Minimum clearance buffer between parts in mm (default: 2.0)",
+        help=f"Minimum clearance buffer between parts in mm (default: 2.0, floor: {MIN_CLEARANCE_MM})",
     )
     load_parser.add_argument(
         "--dry-run",
@@ -56,6 +63,26 @@ def main() -> int:
         type=str,
         default=None,
         help="Explicitly override target directory to scan",
+    )
+    load_parser.add_argument(
+        "--max-height",
+        type=float,
+        default=None,
+        help=(
+            "Preferred maximum height of a stacked 3D plate in mm (default: 60). "
+            "Taller stacks are harder to wash support wax out of."
+        ),
+    )
+    load_parser.add_argument(
+        "--on-cap-exceeded",
+        choices=[SPLIT, EXCEED, FAIL],
+        default=DEFAULT_UNATTENDED_POLICY,
+        help=(
+            "What to do when respecting --max-height costs an extra plate: "
+            "'split' respects the cap and accepts more plates (default), "
+            "'exceed' allows up to the machine limit to save a plate, "
+            "'fail' refuses to pack. The CLI cannot prompt, so it never asks."
+        ),
     )
 
     # Command: verify
@@ -148,12 +175,21 @@ def main() -> int:
     if args.command == "load":
         # Apply CLI overrides
         config.mode = StrategyMode(args.mode)
-        config.clearance_buffer = max(1.5, args.clearance)
+        config.clearance_buffer = max(MIN_CLEARANCE_MM, args.clearance)
         config.dry_run = args.dry_run
+        if args.max_height is not None:
+            config.max_plate_height_mm = max(MIN_CLEARANCE_MM, args.max_height)
+        # The CLI has nobody to prompt, so the policy comes from the command line.
+        config.on_cap_exceeded = args.on_cap_exceeded
 
         orchestrator = LPOrchestrator(config)
         override_dir = Path(args.dir) if args.dir else None
-        summary = orchestrator.run(date_str=args.date, target_directory_override=override_dir)
+
+        try:
+            summary = orchestrator.run(date_str=args.date, target_directory_override=override_dir)
+        except HeightCapExceeded as err:
+            Logger.error(f"[LP AGENT] {err}")
+            return 1
 
         return 0 if summary.success else 1
 

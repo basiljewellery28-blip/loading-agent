@@ -184,9 +184,15 @@ body {
   min-height: 0;
 }
 
-.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar { width: 9px; }
 .sidebar::-webkit-scrollbar-track { background: transparent; }
-.sidebar::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 2px; }
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--bg-elevated);
+  border: 2px solid var(--bg-base);
+  border-radius: 5px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+.sidebar { scrollbar-width: thin; scrollbar-color: var(--bg-elevated) transparent; }
 
 /* ── Cards ─────────────────────────────────────────────────────── */
 .card {
@@ -194,6 +200,11 @@ body {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  /* Keep the natural height.
+     Without this, cards in the flex-column sidebar shrink to fit the panel instead of
+     overflowing it, so the sidebar never scrolls and `overflow: hidden` above silently
+     clips the content -- sliders and quality tiles simply vanished off the bottom. */
+  flex-shrink: 0;
   transition: border-color var(--duration) var(--ease-out),
               box-shadow var(--duration) var(--ease-out);
 }
@@ -801,3 +812,532 @@ body {
     overflow-y: auto;
   }
 }
+
+/* ── Spacing Controls ──────────────────────────────────────────── */
+.slider-row { margin-bottom: 0.85rem; }
+.slider-row:last-of-type { margin-bottom: 0.6rem; }
+
+.slider-row__label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin-bottom: 0.3rem;
+}
+
+.slider-row__value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  color: var(--cyan);
+  font-weight: 600;
+}
+
+.slider-row__hint {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+  line-height: 1.35;
+}
+
+.slider {
+  width: 100%;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-elevated);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--cyan);
+  border: 2px solid var(--bg-card);
+  box-shadow: 0 0 0 1px var(--cyan-dim), 0 0 10px var(--cyan-glow);
+  transition: transform var(--duration) var(--ease-out);
+}
+
+.slider::-webkit-slider-thumb:hover { transform: scale(1.18); }
+
+.slider::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--cyan);
+  border: 2px solid var(--bg-card);
+  cursor: pointer;
+}
+
+/* ── Fit Preview ───────────────────────────────────────────────── */
+.fit-preview {
+  margin-top: 0.75rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.fit-preview__bar {
+  width: 100%;
+  height: 5px;
+  background: var(--bg-elevated);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.fit-preview__fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  background: var(--text-muted);
+  transition: width var(--duration) var(--ease-out), background var(--duration);
+}
+
+.fit-preview__fill--ok   { background: linear-gradient(90deg, var(--emerald-dim), var(--emerald)); }
+.fit-preview__fill--warn { background: linear-gradient(90deg, var(--gold-dim), var(--gold)); }
+
+.fit-preview__text {
+  margin-top: 0.4rem;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* ── Pack Progress ─────────────────────────────────────────────── */
+.pack-progress {
+  padding: 0.7rem 0.8rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius-md);
+  margin-bottom: 0.6rem;
+}
+
+.pack-progress__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.pack-progress__stage {
+  font-size: 0.74rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pack-progress__pct {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cyan);
+  flex-shrink: 0;
+}
+
+.pack-progress .progress-bar { height: 5px; }
+.progress-bar__fill--live { animation: none; }
+
+.pack-progress__times {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.45rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.pack-progress__times strong {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* ── Build Status ──────────────────────────────────────────────── */
+.build-status {
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.7rem;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+}
+
+.build-status__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.build-status__badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.build-status__badge--ok   { background: var(--emerald-glow); color: var(--emerald); }
+.build-status__badge--fail { background: var(--red-glow);     color: var(--red); }
+
+.build-status__engine {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.build-status__facts {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.build-status__reason {
+  margin-top: 0.4rem;
+  font-size: 0.68rem;
+  color: var(--red);
+  line-height: 1.4;
+}
+
+/* ── Plate Tab Build Dot ───────────────────────────────────────── */
+.plate-tab__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: 0.25rem;
+  vertical-align: middle;
+}
+
+.plate-tab__dot--ok   { background: var(--emerald); }
+.plate-tab__dot--fail { background: var(--red); box-shadow: 0 0 6px var(--red-glow); }
+
+/* ── Viewport Additions ────────────────────────────────────────── */
+.viewport-toolbar__divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border-subtle);
+  margin: 0 2px;
+}
+
+.viewport-info__chip--live {
+  border: 1px solid var(--emerald-dim);
+  color: var(--emerald);
+}
+
+/* ── Command Bar ───────────────────────────────────────────────── */
+/* Commands run across the top; the sidebar keeps its width for content. */
+.commandbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 1.5rem;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  min-height: 52px;
+  flex-wrap: wrap;
+  z-index: 90;
+}
+
+.commandbar__group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.commandbar__group--target { flex: 0 1 380px; min-width: 260px; }
+
+.commandbar__input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.45rem 0.7rem;
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  outline: none;
+  transition: border-color var(--duration) var(--ease-out);
+}
+
+.commandbar__input:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px var(--cyan-glow);
+}
+
+.commandbar__input::placeholder { color: var(--text-muted); }
+
+.commandbar__divider {
+  width: 1px;
+  height: 26px;
+  background: var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.commandbar__spacer { flex: 1 1 auto; min-width: 0; }
+
+.commandbar .pack-progress {
+  margin-bottom: 0;
+  padding: 0.35rem 0.6rem;
+  min-width: 260px;
+  max-width: 380px;
+  flex-shrink: 0;
+}
+
+.commandbar .pack-progress__times { margin-top: 0.2rem; gap: 0.75rem; justify-content: flex-start; }
+.commandbar .pack-progress .progress-bar { margin-top: 0.3rem; }
+
+/* Inline strategy toggle sized for the bar rather than a full-width card */
+.strategy-toggle--inline {
+  margin: 0;
+  padding: 0.15rem;
+}
+
+.strategy-toggle--inline .strategy-toggle__option {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.73rem;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 1100px) {
+  .commandbar__spacer { display: none; }
+  .commandbar .pack-progress { max-width: none; width: 100%; }
+}
+
+/* ── Spacing Presets ───────────────────────────────────────────── */
+.preset-row {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.2rem;
+}
+
+.preset {
+  flex: 1;
+  padding: 0.3rem 0.2rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.66rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease-out);
+  white-space: nowrap;
+}
+
+.preset:hover { color: var(--text-primary); border-color: var(--border-active); }
+
+.preset--active {
+  background: var(--cyan-glow);
+  border-color: var(--cyan-dim);
+  color: var(--cyan);
+}
+
+/* ── Quantity Badges ───────────────────────────────────────────── */
+.quantity-summary {
+  padding: 0.45rem 0.6rem;
+  margin-bottom: 0.5rem;
+  background: var(--gold-glow);
+  border: 1px solid var(--gold-dim);
+  border-radius: var(--radius-md);
+  font-size: 0.72rem;
+  color: var(--gold);
+  line-height: 1.4;
+}
+
+.part-item__qty {
+  flex-shrink: 0;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--gold-glow);
+  color: var(--gold);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* ── Server Build Stamp ────────────────────────────────────────── */
+.status-version {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  cursor: help;
+}
+
+/* ── 3D-only controls ──────────────────────────────────────────── */
+.slider-row__tag {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0.05rem 0.3rem;
+  margin-left: 0.3rem;
+  border-radius: var(--radius-sm);
+  background: var(--violet);
+  color: #fff;
+  vertical-align: middle;
+}
+
+/* Dimmed, not hidden: the value stays visible and settable before switching to 3D. */
+.slider-row--inactive { opacity: 0.42; }
+.slider-row--inactive .slider { cursor: not-allowed; }
+
+/* ── Height-cap Decision Modal ─────────────────────────────────── */
+.cap-modal { width: min(92vw, 620px); }
+
+.cap-modal__lead {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 1rem;
+}
+
+.cap-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.cap-option {
+  text-align: left;
+  padding: 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: all var(--duration) var(--ease-out);
+}
+
+.cap-option:hover { border-color: var(--border-active); transform: translateY(-2px); }
+
+.cap-option__head { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.35rem; }
+
+.cap-option__figure {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.cap-option__detail {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.cap-option__note {
+  margin-top: 0.5rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.cap-option--keep .cap-option__figure   { color: var(--emerald); }
+.cap-option--keep:hover                 { border-color: var(--emerald-dim); }
+.cap-option--exceed .cap-option__figure { color: var(--gold); }
+.cap-option--exceed:hover               { border-color: var(--gold-dim); }
+
+.cap-modal__foot {
+  margin-top: 0.9rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.preset-row--tight { margin-top: 0.4rem; }
+.preset-row--tight .preset { font-size: 0.62rem; padding: 0.25rem 0.15rem; }
+
+@media (max-width: 560px) {
+  .cap-options { grid-template-columns: 1fr; }
+}
+
+/* ── Collapsible Cards ─────────────────────────────────────────── */
+/* Everything stays reachable; sections you are not using fold away. */
+.card__header {
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--duration) var(--ease-out);
+}
+
+.card__header:hover { background: var(--bg-card-hover); }
+
+.card__chevron {
+  margin-left: 0.5rem;
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  transition: transform var(--duration) var(--ease-out);
+  flex-shrink: 0;
+}
+
+.card--collapsed .card__chevron { transform: rotate(-90deg); }
+.card--collapsed .card__body { display: none; }
+.card--collapsed .card__header { border-bottom: none; }
+
+/* The title row has to give the chevron somewhere to sit. */
+.card__header { gap: 0.4rem; }
+.card__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Sidebar Scroll Affordance ─────────────────────────────────── */
+/* A short fade at the foot of the panel so it is obvious more is below. */
+.sidebar-wrap {
+  position: relative;
+  min-height: 0;
+  height: 100%;
+}
+
+.sidebar-wrap::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 9px;
+  bottom: 0;
+  height: 28px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(11, 15, 25, 0), var(--bg-base));
+  opacity: 0;
+  transition: opacity var(--duration) var(--ease-out);
+}
+
+.sidebar-wrap--scrollable::after { opacity: 1; }
+
+/* ── Sidebar Section Tools ─────────────────────────────────────── */
+.sidebar__tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.15rem 0.1rem;
+  flex-shrink: 0;
+}
+
+.sidebar__hint {
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+.sidebar__toggle-all {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.66rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+  border-radius: var(--radius-sm);
+}
+
+.sidebar__toggle-all:hover { color: var(--cyan); background: var(--bg-elevated); }

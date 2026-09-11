@@ -28,14 +28,12 @@ def test_lua_script_generation(tmp_path: Path):
 
     merged_stl = tmp_path / "merged_plate_01.stl"
     fabbproject = tmp_path / "plate_01.fabbproject"
-    audit_json = tmp_path / "audit_01.json"
     log_file = tmp_path / "netfabb.log"
 
     lua_code = runner._generate_lua_script(
         stl_paths=[stl1, stl2],
         merged_stl_path=merged_stl,
         fabbproject_path=fabbproject,
-        audit_json_path=audit_json,
         log_file_path=log_file,
         mode=StrategyMode.NESTING_2D,
     )

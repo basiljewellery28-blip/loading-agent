@@ -43,42 +43,58 @@ class ScanResult:
         return [p.file_path for p in self.valid_parts]
 
 
+def ensure_windows_share_online(path: Path | str) -> None:
+    """Ensure Windows CSC Offline Files transitions online if network share path appears offline."""
+    p_str = str(path)
+    if not (p_str.lower().startswith("q:") or r"192.1.1.131" in p_str):
+        return
+    try:
+        import subprocess
+        cmd = [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "Invoke-CimMethod -Namespace 'root\\cimv2' -ClassName 'Win32_OfflineFilesCache' "
+            "-MethodName 'TransitionOnline' -Arguments @{ Path = '\\\\192.1.1.131\\cad\\Printing\\Form2\\MJP-2500W\\2026'; Flags = [uint32]0 } "
+            "-ErrorAction SilentlyContinue | Out-Null"
+        ]
+        subprocess.run(cmd, capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+
 class DateScanner:
     """Subagent Scout: Ingests and audits candidate STL files from date staging."""
 
     REPAIRED_SUFFIX = " (repaired)"
-    MULTIPART_PATTERN = re.compile(r"^(.*?)-PP(\d+)(?:\s+\(repaired\))?\.stl$", re.IGNORECASE)
+    MULTIPART_PATTERN = re.compile(r"^(.*?)-PP(\d+)(?:\s*\(repaired\))*\s*\.stl$", re.IGNORECASE)
 
     def __init__(self, printing_root: Path | str):
         self.printing_root = Path(printing_root)
 
-    def scan_date(self, date_str: str | None = None, auto_fallback_parent: bool = True) -> ScanResult:
-        """Scan target date folder for STL files.
+    def scan_directory(self, target_dir: Path) -> ScanResult:
+        """Scan any arbitrary directory for STL files, enforcing provenance and multi-part completeness.
 
         Args:
-            date_str: Optional date string ('DD.MM.YYYY' or 'YYYY-MM-DD'). Defaults to today.
-            auto_fallback_parent: If 'Agent/' subfolder is empty/missing, inspects parent date folder.
+            target_dir: Directory path containing STL files.
         """
-        agent_folder = resolve_date_folder(self.printing_root, date_str)
-        scan_dir = agent_folder
+        target_dir = Path(target_dir)
+        result = ScanResult(target_directory=target_dir)
 
-        if not scan_dir.exists() or not any(scan_dir.glob("*.stl")):
-            parent_date_dir = agent_folder.parent
-            if auto_fallback_parent and parent_date_dir.exists() and any(parent_date_dir.glob("*.stl")):
-                Logger.info(f"[SCOUT] 'Agent/' folder empty/missing at {agent_folder}. Falling back to {parent_date_dir}")
-                scan_dir = parent_date_dir
-            else:
-                Logger.warning(f"[SCOUT] Target date folder does not exist or contains no STLs: {scan_dir}")
-                return ScanResult(target_directory=scan_dir)
+        if not target_dir.exists():
+            ensure_windows_share_online(target_dir)
 
-        Logger.info(f"[SCOUT] Scanning directory: {scan_dir}")
-        stl_files = list(scan_dir.glob("*.stl"))
+        if not target_dir.exists():
+            Logger.warning(f"[SCOUT] Target directory does not exist: {target_dir}")
+            return result
 
-        result = ScanResult(target_directory=scan_dir)
-        exceptions_dir = scan_dir / "exceptions"
+        Logger.info(f"[SCOUT] Scanning directory: {target_dir}")
+        stl_files = list(target_dir.glob("*.stl"))
+        exceptions_dir = target_dir / "exceptions"
 
         # 1. Filter out zero-byte or corrupted files
         candidates: list[Path] = []
+        file_sizes: dict[Path, int] = {}
         for file_path in stl_files:
             # Skip any files already in an exceptions or plate subdirectory
             if "exceptions" in file_path.parts or any(p.startswith("Plate_") for p in file_path.parts):
@@ -91,6 +107,7 @@ class DateScanner:
                     self._quarantine_file(file_path, exceptions_dir / "corrupted")
                     result.quarantined_files.append(file_path)
                     continue
+                file_sizes[file_path] = size
                 candidates.append(file_path)
             except OSError as err:
                 Logger.error(f"[SCOUT] Could not stat file {file_path.name}: {err}")
@@ -100,22 +117,17 @@ class DateScanner:
         resolved_by_stem: dict[str, Path] = {}
         for file_path in candidates:
             filename = file_path.name
-            is_repaired = self.REPAIRED_SUFFIX.lower() in filename.lower()
+            is_repaired = "(repaired)" in filename.lower()
 
-            # Normalize base stem by removing the repaired suffix
-            clean_stem = filename
-            if is_repaired:
-                idx = clean_stem.lower().rfind(self.REPAIRED_SUFFIX.lower())
-                clean_stem = clean_stem[:idx] + clean_stem[idx + len(self.REPAIRED_SUFFIX) :]
-            if clean_stem.lower().endswith(".stl"):
-                clean_stem = clean_stem[:-4]
+            # Normalize base stem by removing any trailing (repaired) tags and whitespace
+            clean_stem = re.sub(r"(?:\s*\(repaired\))+\s*$", "", file_path.stem, flags=re.IGNORECASE).strip()
 
             existing = resolved_by_stem.get(clean_stem)
             if existing is None:
                 resolved_by_stem[clean_stem] = file_path
             else:
                 # If existing is raw but current is repaired, replace it!
-                existing_is_repaired = self.REPAIRED_SUFFIX.lower() in existing.name.lower()
+                existing_is_repaired = "(repaired)" in existing.name.lower()
                 if is_repaired and not existing_is_repaired:
                     Logger.info(f"[SCOUT] Provenance match: replacing raw {existing.name} with repaired {file_path.name}")
                     resolved_by_stem[clean_stem] = file_path
@@ -125,7 +137,7 @@ class DateScanner:
         standalone_parts: list[ScannedPart] = []
 
         for clean_stem, file_path in resolved_by_stem.items():
-            is_repaired = self.REPAIRED_SUFFIX.lower() in file_path.name.lower()
+            is_repaired = "(repaired)" in file_path.name.lower()
             match = self.MULTIPART_PATTERN.match(file_path.name)
 
             if match:
@@ -141,7 +153,7 @@ class DateScanner:
                         is_multipart=False,
                         component_index=None,
                         base_design_key=clean_stem,
-                        file_size_bytes=file_path.stat().st_size,
+                        file_size_bytes=file_sizes.get(file_path, 0),
                     )
                 )
 
@@ -163,7 +175,7 @@ class DateScanner:
                     result.quarantined_files.append(path)
             else:
                 for comp_idx, path in items:
-                    is_rep = self.REPAIRED_SUFFIX.lower() in path.name.lower()
+                    is_rep = "(repaired)" in path.name.lower()
                     result.valid_parts.append(
                         ScannedPart(
                             file_path=path,
@@ -172,7 +184,7 @@ class DateScanner:
                             is_multipart=True,
                             component_index=comp_idx,
                             base_design_key=design_key,
-                            file_size_bytes=path.stat().st_size,
+                            file_size_bytes=file_sizes.get(path, 0),
                         )
                     )
 
@@ -182,6 +194,27 @@ class DateScanner:
             f"{len(result.quarantined_files)} quarantined."
         )
         return result
+
+    def scan_date(self, date_str: str | None = None, auto_fallback_parent: bool = True) -> ScanResult:
+        """Scan target date folder for STL files.
+
+        Args:
+            date_str: Optional date string ('DD.MM.YYYY' or 'YYYY-MM-DD'). Defaults to today.
+            auto_fallback_parent: If 'Agent/' subfolder is empty/missing, inspects parent date folder.
+        """
+        agent_folder = resolve_date_folder(self.printing_root, date_str)
+        scan_dir = agent_folder
+
+        if not scan_dir.exists() or not any(scan_dir.glob("*.stl")):
+            parent_date_dir = agent_folder.parent
+            if auto_fallback_parent and parent_date_dir.exists() and any(parent_date_dir.glob("*.stl")):
+                Logger.info(f"[SCOUT] 'Agent/' folder empty/missing at {agent_folder}. Falling back to {parent_date_dir}")
+                scan_dir = parent_date_dir
+            else:
+                Logger.warning(f"[SCOUT] Target date folder does not exist or contains no STLs: {scan_dir}")
+                return ScanResult(target_directory=scan_dir)
+
+        return self.scan_directory(scan_dir)
 
     def _quarantine_file(self, file_path: Path, target_dir: Path) -> None:
         """Safely copy or note quarantined files to exceptions directory."""

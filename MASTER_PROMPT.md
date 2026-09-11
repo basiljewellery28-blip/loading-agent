@@ -52,6 +52,11 @@
        - Clearance Buffer (Padding / Outset): Mandatory 2.0 mm (minimum 1.5 mm) safety envelope around each part, treated as a solid obstacle during nesting.
        - Interlocking / Entanglement Prevention: Mandatory topological checking to prevent ring shanks, loops, or bails from hooking through each other, even when surfaces do not touch.
        - Bounding Box Culling: Hierarchical Axis-Aligned Bounding Box (AABB) and Oriented Bounding Box (OBB) calculations for high-speed spatial partitioning before exact mesh intersection checks.
+    4. BUILD PLATE SIZE BUDGET & MESH OPTIMIZATION (Safe Production Guideline):
+       - Target merged build plate STL size should typically be between 150 MB and 600 MB (avoid un-optimized multi-gigabyte plates like 3.9 GB).
+       - Note: This is an ADVISORY SAFE GUIDELINE to protect WaxJetPrint from out-of-memory and OpenGL driver crashes; it does NOT restrict agents from processing valid plates or compromise fine jewelry quality.
+       - In MatrixGold / Rhino or Netfabb: Run mesh reduction / decimation on non-critical geometry (smooth shanks, sprues, planar surfaces) aiming for 70% to 90% facet reduction.
+       - Crucial: Never degrade micro-prongs, milgrain, or fine stone settings. Keeping typical plates under 500 MB preserves 100% casting quality while reducing WaxJetPrint RAM usage from 45 GB down to ~6–8 GB.
   </NESTING_DISCIPLINE_RULES>
 
   <ENGINEERING_CONSTRAINTS>

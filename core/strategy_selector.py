@@ -6,13 +6,17 @@ evaluates batch homogeneity, and selects 2D Flat Nesting vs 3D Packing for the W
 
 from __future__ import annotations
 
+import json
 import struct
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from config.lp_config import LPConfig, StrategyMode
 from core.date_scanner import ScannedPart
 from utils.logger import Logger
+
+ProgressFn = Callable[[str, float], None]
 
 
 @dataclass
@@ -78,6 +82,8 @@ class StrategyEvaluation:
     batch_homogeneity: float
     estimated_plates_required: int
     reason: str
+    # Share of parts coming from xN repeat-production files; drives the 3D decision.
+    repeat_ratio: float = 0.0
 
 
 class StrategySelector:
@@ -86,12 +92,20 @@ class StrategySelector:
     def __init__(self, config: LPConfig):
         self.config = config
 
-    def evaluate_batch(self, scanned_parts: list[ScannedPart]) -> StrategyEvaluation:
+    def evaluate_batch(
+        self,
+        scanned_parts: list[ScannedPart],
+        progress: ProgressFn | None = None,
+    ) -> StrategyEvaluation:
         """Analyze batch geometries and determine nesting mode."""
         valid_geometries: list[PartGeometry] = []
         oversized: list[PartGeometry] = []
+        total = len(scanned_parts)
 
-        for part in scanned_parts:
+        for idx, part in enumerate(scanned_parts):
+            Logger.info(f"[TACTICIAN] Evaluating geometry [{idx + 1}/{total}]: {part.file_path.name}")
+            if progress and total:
+                progress(f"Measuring {part.file_path.name}", idx / total)
             try:
                 bbox, triangle_count = self.calculate_stl_aabb(part.file_path)
                 fits = bbox.fits_in_platform(
@@ -119,8 +133,15 @@ class StrategySelector:
                 dummy_bbox = BoundingBox(0, 0, 0, 0, 0, 0)
                 oversized.append(PartGeometry(part=part, bbox=dummy_bbox, triangle_count=0, is_oversized=True))
 
+        # Weight each part by the quantity its filename asks for: an "x16" file occupies
+        # sixteen footprints on the plate, and ignoring that under-counts the batch badly
+        # enough to pick the wrong strategy and the wrong plate count.
+        from core.quantity import parse_quantity
+
         total_buffered_footprint = sum(
-            g.bbox.buffered_footprint(self.config.clearance_buffer) for g in valid_geometries
+            g.bbox.buffered_footprint(self.config.clearance_buffer)
+            * parse_quantity(g.part.file_path.name)
+            for g in valid_geometries
         )
         usable_area = self.config.platform_area
         ratio = total_buffered_footprint / usable_area if usable_area > 0 else 0.0
@@ -128,16 +149,22 @@ class StrategySelector:
         # Homogeneity calculation: ratio of most common design stem or repeated styles
         homogeneity = self._calculate_homogeneity([g.part for g in valid_geometries])
 
+        # Share of the batch that comes from repeat-production files -- names carrying an
+        # xN multiplier at or above the threshold. This is what distinguishes an RPM run
+        # from a mixed daily order, and it is the signal 3D packing exists to serve.
+        repeat_ratio = self._calculate_repeat_ratio(valid_geometries)
+
         # Estimated plates (2D)
         estimated_plates = max(1, int(total_buffered_footprint // usable_area) + 1)
 
         # Mode determination
-        selected_mode, reason = self._select_mode(ratio, homogeneity)
+        selected_mode, reason = self._select_mode(ratio, homogeneity, repeat_ratio)
 
         Logger.info(
             f"[TACTICIAN] Strategy: {selected_mode.value.upper()} | "
             f"Footprint: {total_buffered_footprint:.0f} mm^2 ({ratio*100:.1f}% plate area) | "
-            f"Homogeneity: {homogeneity*100:.1f}% | Reason: {reason}"
+            f"Homogeneity: {homogeneity*100:.1f}% | Repeat units: {repeat_ratio*100:.1f}% | "
+            f"Reason: {reason}"
         )
 
         return StrategyEvaluation(
@@ -151,16 +178,53 @@ class StrategySelector:
             batch_homogeneity=homogeneity,
             estimated_plates_required=estimated_plates,
             reason=reason,
+            repeat_ratio=repeat_ratio,
         )
 
-    def _select_mode(self, footprint_ratio: float, homogeneity: float) -> tuple[StrategyMode, str]:
+    def _calculate_repeat_ratio(self, geometries: list[PartGeometry]) -> float:
+        """Fraction of the batch's parts that come from repeat-production files.
+
+        Counted in parts, not files: one "...-PP X16" file contributes sixteen parts and
+        should weigh accordingly against a handful of one-off bespoke pieces.
+        """
+        from core.quantity import parse_quantity
+
+        total_parts = 0
+        repeat_parts = 0
+        for geom in geometries:
+            qty = parse_quantity(geom.part.file_path.name)
+            total_parts += qty
+            if qty >= self.config.quantity_3d_threshold:
+                repeat_parts += qty
+
+        return repeat_parts / total_parts if total_parts else 0.0
+
+    def _select_mode(
+        self,
+        footprint_ratio: float,
+        homogeneity: float,
+        repeat_ratio: float = 0.0,
+    ) -> tuple[StrategyMode, str]:
         """Determine strategy based on user configuration and geometric metrics."""
         if self.config.mode == StrategyMode.NESTING_2D:
             return StrategyMode.NESTING_2D, "Explicitly configured to 2D Flat Nesting"
         if self.config.mode == StrategyMode.PACKING_3D:
             return StrategyMode.PACKING_3D, "Explicitly configured to 3D Packing"
 
-        # AUTO mode logic
+        # AUTO mode logic.
+        #
+        # Repeat production is checked before the footprint test. A batch dominated by
+        # xN multiplied units is an RPM run, which is exactly what 3D packing is for --
+        # and choosing it costs nothing when the batch is small, because the packer fills
+        # one tier completely before ever opening a second.
+        if repeat_ratio >= self.config.batch_homogeneity_threshold:
+            return (
+                StrategyMode.PACKING_3D,
+                f"Repeat production batch ({repeat_ratio*100:.0f}% of parts come from "
+                f"x{self.config.quantity_3d_threshold}+ multiplied files). 3D Packing "
+                "stacks the units to maximise plate yield.",
+            )
+
         if footprint_ratio <= 1.05:
             return (
                 StrategyMode.NESTING_2D,
@@ -191,8 +255,72 @@ class StrategySelector:
         max_count = max(counts.values()) if counts else 0
         return max_count / len(parts)
 
-    @staticmethod
-    def calculate_stl_aabb(stl_path: Path) -> tuple[BoundingBox, int]:
+    # Keyed on (filename, size_bytes, mtime_ns). See calculate_stl_aabb for why mtime is
+    # part of the key rather than name and size alone.
+    _AABB_CACHE: dict[tuple[str, int, int], tuple[BoundingBox, int]] = {}
+    _CACHE_LOADED: bool = False
+    _CACHE_FILE: Path = Path(__file__).resolve().parent.parent / ".cache" / "aabb_cache.json"
+
+    @classmethod
+    def _ensure_cache_loaded(cls) -> None:
+        if cls._CACHE_LOADED:
+            return
+        cls._CACHE_LOADED = True
+        try:
+            if cls._CACHE_FILE.exists():
+                with open(cls._CACHE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for key, val in data.items():
+                        # "<name>:<size>:<mtime_ns>". Entries written before mtime became
+                        # part of the key are skipped rather than trusted -- they cannot be
+                        # told apart from a file that has since been rewritten.
+                        parts = key.rsplit(":", 2)
+                        if len(parts) != 3:
+                            continue
+                        try:
+                            name, size, mtime = parts[0], int(parts[1]), int(parts[2])
+                        except ValueError:
+                            continue
+                        b = val["bbox"]
+                        bbox = BoundingBox(
+                            b["min_x"], b["max_x"], b["min_y"], b["max_y"], b["min_z"], b["max_z"]
+                        )
+                        cls._AABB_CACHE[(name, size, mtime)] = (bbox, val["triangles"])
+        except Exception as e:
+            Logger.debug(f"[TACTICIAN] Could not load persistent AABB cache: {e}")
+
+    @classmethod
+    def _save_cache_entry(
+        cls, cache_key: tuple[str, int, int], bbox: BoundingBox, triangles: int
+    ) -> None:
+        try:
+            cls._CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            existing = {}
+            if cls._CACHE_FILE.exists():
+                try:
+                    with open(cls._CACHE_FILE, "r", encoding="utf-8") as f:
+                        existing = json.load(f)
+                except Exception:
+                    existing = {}
+            k_str = f"{cache_key[0]}:{cache_key[1]}:{cache_key[2]}"
+            existing[k_str] = {
+                "bbox": {
+                    "min_x": bbox.min_x,
+                    "max_x": bbox.max_x,
+                    "min_y": bbox.min_y,
+                    "max_y": bbox.max_y,
+                    "min_z": bbox.min_z,
+                    "max_z": bbox.max_z,
+                },
+                "triangles": triangles,
+            }
+            with open(cls._CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(existing, f, indent=2)
+        except Exception as e:
+            Logger.debug(f"[TACTICIAN] Could not save persistent AABB cache: {e}")
+
+    @classmethod
+    def calculate_stl_aabb(cls, stl_path: Path) -> tuple[BoundingBox, int]:
         """Parse binary STL file and calculate exact Axis-Aligned Bounding Box.
 
         Binary STL format:
@@ -200,7 +328,25 @@ class StrategySelector:
         - 4 bytes: uint32 triangle count (N)
         - N * 50 bytes: Each triangle has 12-byte normal, 3 * 12-byte vertices, 2-byte attribute.
         """
-        with open(stl_path, "rb") as f:
+        cls._ensure_cache_loaded()
+        try:
+            stat = stl_path.stat()
+            actual_size = stat.st_size
+            # Modification time is part of the key on purpose. Keyed on name and size
+            # alone, a file rewritten in place at the same byte count returns the previous
+            # file's geometry -- and merged_plate_NN.stl is regenerated under the same name
+            # on every run, very often at an identical size when the same parts are
+            # repacked. That is a silently wrong bounding box, so mtime disambiguates it.
+            mtime = int(stat.st_mtime_ns)
+        except OSError:
+            actual_size = 0
+            mtime = 0
+
+        cache_key = (stl_path.name, actual_size, mtime)
+        if cache_key in cls._AABB_CACHE:
+            return cls._AABB_CACHE[cache_key]
+
+        with open(stl_path, "rb", buffering=2 * 1024 * 1024) as f:
             header = f.read(80)
             if len(header) < 80:
                 raise ValueError("STL file smaller than 80 bytes")
@@ -211,45 +357,57 @@ class StrategySelector:
 
             triangle_count = struct.unpack("<I", count_bytes)[0]
             expected_size = 84 + triangle_count * 50
-            actual_size = stl_path.stat().st_size
 
             # Fallback check if file is ASCII
             if actual_size != expected_size and header.strip().startswith(b"solid"):
-                return StrategySelector._parse_ascii_stl_aabb(stl_path)
+                res = cls._parse_ascii_stl_aabb(stl_path)
+                cls._AABB_CACHE[cache_key] = res
+                return res
 
             min_x = min_y = min_z = float("inf")
             max_x = max_y = max_z = float("-inf")
 
-            # Read facets in chunks of 4096 facets (204,800 bytes) for speed
-            chunk_facets = 4096
+            # Read facets in chunks of 65536 facets (3.2 MB) for speed
+            chunk_facets = 65536
             chunk_bytes = chunk_facets * 50
 
             for _ in range(0, triangle_count, chunk_facets):
                 data = f.read(chunk_bytes)
-                num_facets = len(data) // 50
-                for i in range(num_facets):
-                    offset = i * 50 + 12  # Skip 12-byte normal vector
-                    # Read 3 vertices (each 3 floats = 9 floats = 36 bytes)
-                    v = struct.unpack("<9f", data[offset : offset + 36])
-                    xs = (v[0], v[3], v[6])
-                    ys = (v[1], v[4], v[7])
-                    zs = (v[2], v[5], v[8])
+                if not data:
+                    break
+                # Only unpack complete 50-byte facet records
+                valid_len = (len(data) // 50) * 50
+                if valid_len == 0:
+                    break
+                for x1, y1, z1, x2, y2, z2, x3, y3, z3 in struct.iter_unpack("<12x9f2x", data[:valid_len]):
+                    if x1 < min_x: min_x = x1
+                    if x2 < min_x: min_x = x2
+                    if x3 < min_x: min_x = x3
+                    if x1 > max_x: max_x = x1
+                    if x2 > max_x: max_x = x2
+                    if x3 > max_x: max_x = x3
 
-                    v_min_x, v_max_x = min(xs), max(xs)
-                    v_min_y, v_max_y = min(ys), max(ys)
-                    v_min_z, v_max_z = min(zs), max(zs)
+                    if y1 < min_y: min_y = y1
+                    if y2 < min_y: min_y = y2
+                    if y3 < min_y: min_y = y3
+                    if y1 > max_y: max_y = y1
+                    if y2 > max_y: max_y = y2
+                    if y3 > max_y: max_y = y3
 
-                    min_x = min(min_x, v_min_x)
-                    max_x = max(max_x, v_max_x)
-                    min_y = min(min_y, v_min_y)
-                    max_y = max(max_y, v_max_y)
-                    min_z = min(min_z, v_min_z)
-                    max_z = max(max_z, v_max_z)
+                    if z1 < min_z: min_z = z1
+                    if z2 < min_z: min_z = z2
+                    if z3 < min_z: min_z = z3
+                    if z1 > max_z: max_z = z1
+                    if z2 > max_z: max_z = z2
+                    if z3 > max_z: max_z = z3
 
             if min_x == float("inf"):
                 min_x = max_x = min_y = max_y = min_z = max_z = 0.0
 
-            return BoundingBox(min_x, max_x, min_y, max_y, min_z, max_z), triangle_count
+        res = (BoundingBox(min_x, max_x, min_y, max_y, min_z, max_z), triangle_count)
+        cls._AABB_CACHE[cache_key] = res
+        cls._save_cache_entry(cache_key, res[0], res[1])
+        return res
 
     @staticmethod
     def _parse_ascii_stl_aabb(stl_path: Path) -> tuple[BoundingBox, int]:

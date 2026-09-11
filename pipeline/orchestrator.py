@@ -6,18 +6,33 @@ Intake -> Geometric Strategy -> Nesting -> Verification -> Overflow Distribution
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
 from config.lp_config import LPConfig
 from core.collision_checker import CollisionChecker, PlacedPartBox
 from core.date_scanner import DateScanner
+from core.height_policy import DecideFn
 from core.netfabb_runner import NetfabbRunner
 from core.plate_distributor import PlateDistributor
 from core.strategy_selector import StrategySelector
 from manifest.manifest_writer import ManifestWriter
 from pipeline.stage_result import PipelineExecutionSummary
 from utils.logger import Logger
+
+ProgressFn = Callable[[str, float], None]
+
+# Share of the overall progress bar each stage owns, as (start, end) fractions.
+# Packing dominates the wall clock on a real batch, so it gets most of the bar --
+# a bar that sprints to 90% and then sits there for ten minutes is worse than none.
+_STAGE_SPAN = {
+    "scan": (0.00, 0.05),
+    "geometry": (0.05, 0.20),
+    "pack": (0.20, 0.90),
+    "verify": (0.90, 0.96),
+    "manifest": (0.96, 1.00),
+}
 
 
 class LPOrchestrator:
@@ -39,40 +54,33 @@ class LPOrchestrator:
         self,
         date_str: str | None = None,
         target_directory_override: Path | None = None,
+        progress: ProgressFn | None = None,
+        decide: DecideFn | None = None,
     ) -> PipelineExecutionSummary:
-        """Execute end-to-end build plate preparation."""
+        """Execute end-to-end build plate preparation.
+
+        `progress` is called as (stage_label, fraction) with fraction in [0, 1] across the
+        whole run, so a caller can drive a progress bar without knowing the stage layout.
+        """
         started_at = datetime.now()
         effective_date = date_str or datetime.now().strftime("%d.%m.%Y")
 
+        def report(stage: str, local_fraction: float, label: str) -> None:
+            """Map a stage-local fraction onto the overall progress bar."""
+            if progress is None:
+                return
+            start, end = _STAGE_SPAN[stage]
+            clamped = max(0.0, min(1.0, local_fraction))
+            progress(label, start + (end - start) * clamped)
+
         Logger.info(f"=== [LP AGENT] Starting Build Plate Preparation for Date: {effective_date} ===")
+        report("scan", 0.0, "Scanning folder for STLs")
 
         # 1. SCOUT: Ingest & Audit STLs
         if target_directory_override:
-            Logger.info(f"[SCOUT] Target folder overridden: {target_directory_override}")
-            scan_dir = Path(target_directory_override)
-            # Use custom scan target
-            custom_scout = DateScanner(scan_dir.parent.parent.parent)
-            # Scan directory directly
-            scan_result = custom_scout.scan_date(date_str)
-            # If path doesn't match default convention, scan override directly
-            if not scan_result.valid_parts and scan_dir.exists():
-                stl_paths = list(scan_dir.glob("*.stl"))
-                scan_result.target_directory = scan_dir
-                for p in stl_paths:
-                    if p.stat().st_size > 84 and not any(part.startswith("Plate_") for part in p.parts):
-                        is_rep = "(repaired)" in p.name.lower()
-                        from core.date_scanner import ScannedPart
-                        scan_result.valid_parts.append(
-                            ScannedPart(
-                                file_path=p,
-                                stem=p.stem,
-                                is_repaired=is_rep,
-                                is_multipart=False,
-                                component_index=None,
-                                base_design_key=p.stem,
-                                file_size_bytes=p.stat().st_size,
-                            )
-                        )
+            target_dir = Path(target_directory_override)
+            Logger.info(f"[SCOUT] Target folder overridden: {target_dir}")
+            scan_result = self.scout.scan_directory(target_dir)
         else:
             scan_result = self.scout.scan_date(date_str)
 
@@ -96,7 +104,11 @@ class LPOrchestrator:
             )
 
         # 2. TACTICIAN: Strategy & Geometry Evaluation
-        strategy_eval = self.tactician.evaluate_batch(scan_result.valid_parts)
+        report("geometry", 0.0, f"Measuring {len(scan_result.valid_parts)} parts")
+        strategy_eval = self.tactician.evaluate_batch(
+            scan_result.valid_parts,
+            progress=(lambda label, frac: report("geometry", frac, label)) if progress else None,
+        )
         valid_paths = [g.part.file_path for g in strategy_eval.valid_geometries]
 
         if not valid_paths:
@@ -117,13 +129,27 @@ class LPOrchestrator:
             )
 
         # 3. MARSHAL: Plate Distribution & Netfabb Execution
+        #
+        # Expand filename quantity suffixes first ("...-PP x2" -> two parts on the plate).
+        # This is the only place expansion happens; everything downstream works in
+        # instances so the copies are packed, verified and reported individually.
+        from core.quantity import expand_instances
+
+        instances = expand_instances(valid_paths)
+        if len(instances) != len(valid_paths):
+            report("pack", 0.0, f"Expanded {len(valid_paths)} files to {len(instances)} parts")
+
+        report("pack", 0.0, "Packing plates")
         dist_result = self.marshal.distribute_parts(
-            candidate_paths=valid_paths,
+            candidate_paths=instances,
             output_base_dir=target_dir,
             mode=strategy_eval.selected_mode,
+            progress=(lambda label, frac: report("pack", frac, label)) if progress else None,
+            decide=decide,
         )
 
         # 4. SENTRY: Verify each generated plate
+        report("verify", 0.0, "Verifying clearances")
         from core.strategy_selector import BoundingBox
 
         geom_map = {g.part.file_path.name: g.bbox for g in strategy_eval.valid_geometries}
@@ -134,14 +160,25 @@ class LPOrchestrator:
                     box = BoundingBox(min_x=b[1], max_x=b[2], min_y=b[3], max_y=b[4], min_z=b[5], max_z=b[6])
                     placed_boxes.append(PlacedPartBox(name=b[0], bbox=box))
             else:
+                # Geometry is keyed by the file on disk; copies of one source share it.
                 for p in plate.packed_files:
-                    bbox = geom_map.get(p.name)
+                    bbox = geom_map.get(p.source_name)
                     if bbox:
                         placed_boxes.append(PlacedPartBox(name=p.name, bbox=bbox))
 
-            plate.verification_report = self.sentry.verify_placed_boxes(placed_boxes)
+            # Bounding-box clearance is only inconclusive when Netfabb's own TrueShape
+            # packer chose the layout: it nests on real outlines, so overlapping boxes are
+            # expected there rather than a defect. Layouts LP Agent decided are
+            # bounding-box layouts, including "netfabb-placed" ones where Netfabb only
+            # built the plate -- for those an overlap is a genuine collision.
+            box_clearance_is_conclusive = plate.builder != "netfabb"
+            plate.verification_report = self.sentry.verify_placed_boxes(
+                placed_boxes,
+                clearance_is_authoritative=box_clearance_is_conclusive,
+            )
 
         # 5. MARSHAL: Compile Manifest & Work Order
+        report("manifest", 0.0, "Writing manifest")
         manifest_path = None
         if not self.config.dry_run:
             manifest_path = self.manifest_writer.write_manifest(
@@ -157,13 +194,32 @@ class LPOrchestrator:
             Logger.info("[LP AGENT] Dry-run mode: skipping disk writes of master manifest.")
 
         completed_at = datetime.now()
+        report("manifest", 1.0, "Complete")
+
+        # A run only succeeds if every generated plate actually holds geometry. Reporting
+        # success for an unbuilt plate is the failure mode this pipeline is guarding against.
+        # A dry run writes nothing by design, so it is exempt.
+        unbuilt = (
+            [] if self.config.dry_run
+            else [p.plate_name for p in dist_result.plates if not p.plate_built]
+        )
+        if unbuilt:
+            Logger.error(f"[LP AGENT] Plates with no usable STL: {', '.join(unbuilt)}")
+
         Logger.info(
             f"=== [LP AGENT] Completed: {dist_result.total_parts_assigned} parts allocated across "
             f"{dist_result.total_plates_generated} plates in {(completed_at - started_at).total_seconds():.1f}s ==="
         )
 
+        error_bits = []
+        if unbuilt:
+            error_bits.append(f"{len(unbuilt)} plate(s) were not built: {', '.join(unbuilt)}")
+        if dist_result.unassigned_files:
+            error_bits.append(f"{len(dist_result.unassigned_files)} part(s) could not be placed")
+
         return PipelineExecutionSummary(
-            success=True,
+            success=not unbuilt,
+            error_message="; ".join(error_bits) or None,
             date_str=effective_date,
             target_directory=target_dir,
             mode_selected=strategy_eval.selected_mode.value,

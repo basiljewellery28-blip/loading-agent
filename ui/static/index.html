@@ -28,39 +28,95 @@
           <span class="status-dot"></span>
           <span id="status-printer-text">235 × 138 × 100 mm</span>
         </div>
+        <!-- Which build is actually serving: a server started before a code change keeps
+             running the old agent until it is restarted. -->
+        <span class="status-version" id="status-version">—</span>
       </div>
     </header>
+
+    <!-- ── Command Bar ─────────────────────────────────────── -->
+    <!-- Commands run across the top so the sidebar keeps its width for content. -->
+    <div class="commandbar" id="commandbar">
+
+      <div class="commandbar__group commandbar__group--target">
+        <input type="text" class="commandbar__input" id="date-input"
+               placeholder="DD.MM.YYYY or folder path" autocomplete="off" />
+        <button class="btn btn--secondary btn--small" id="btn-today" title="Jump to today">Today</button>
+        <button class="btn btn--primary btn--small" id="btn-scan" title="Scan folder for STLs">
+          🔍 Scan
+        </button>
+      </div>
+
+      <div class="commandbar__divider"></div>
+
+      <div class="commandbar__group">
+        <div class="strategy-toggle strategy-toggle--inline" id="strategy-toggle">
+          <button class="strategy-toggle__option strategy-toggle__option--active"
+                  data-mode="auto" id="strat-auto">Auto</button>
+          <button class="strategy-toggle__option" data-mode="2d" id="strat-2d">2D Flat</button>
+          <button class="strategy-toggle__option" data-mode="3d" id="strat-3d">3D Pack</button>
+        </div>
+      </div>
+
+      <div class="commandbar__divider"></div>
+
+      <div class="commandbar__group">
+        <button class="btn btn--primary" id="btn-pack" disabled>⚡ Run Plate Pack</button>
+        <button class="btn btn--gold btn--small" id="btn-open-netfabb" disabled>🖥️ Netfabb</button>
+        <button class="btn btn--secondary btn--small" id="btn-download" disabled>💾 Export STL</button>
+        <button class="btn btn--secondary btn--small" id="btn-manifest" disabled>📋 Manifest</button>
+      </div>
+
+      <div class="commandbar__spacer"></div>
+
+      <!-- Live pack progress: stage, percentage, elapsed and remaining -->
+      <div class="pack-progress" id="pack-progress" style="display:none;">
+        <div class="pack-progress__head">
+          <span class="pack-progress__stage" id="pack-stage">Starting…</span>
+          <span class="pack-progress__pct" id="pack-pct">0%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-bar__fill progress-bar__fill--live" id="pack-fill" style="width:0%"></div>
+        </div>
+        <div class="pack-progress__times">
+          <span>⏱ <strong id="pack-elapsed">0:00</strong></span>
+          <span>⏳ <strong id="pack-eta">—</strong></span>
+        </div>
+      </div>
+
+    </div>
 
     <!-- ── Main Content ────────────────────────────────────── -->
     <main class="main">
 
       <!-- ── Sidebar (Control Panel) ───────────────────────── -->
+      <div class="sidebar-wrap" id="sidebar-wrap">
       <aside class="sidebar" id="sidebar">
 
-        <!-- Date Scanner Card -->
+        <div class="sidebar__tools">
+          <span class="sidebar__hint" id="sidebar-hint">Click a section title to fold it</span>
+          <button class="sidebar__toggle-all" id="btn-toggle-all">Collapse all</button>
+        </div>
+
+
+        <!-- Scanned Parts Card -->
         <div class="card" id="card-scanner">
           <div class="card__header">
             <span class="card__title">
-              <span class="card__title-icon">🔍</span> Scout — Date Scanner
+              <span class="card__title-icon">🔍</span> Scout — Parts
             </span>
             <span class="card__badge" id="scanner-badge" style="background: var(--bg-elevated); color: var(--text-muted);">—</span>
           </div>
           <div class="card__body">
-            <div class="date-picker">
-              <input type="text" class="date-picker__input" id="date-input"
-                     placeholder="DD.MM.YYYY" autocomplete="off" />
-              <button class="btn btn--secondary btn--small" id="btn-today" title="Today">Today</button>
-              <button class="btn btn--primary btn--small" id="btn-scan" title="Scan folder">
-                ⚡ Scan
-              </button>
-            </div>
-            <div id="scan-progress" style="display:none;">
+            <div id="target-folder-display" style="display:none; font-size:0.72rem; color:var(--text-muted); margin-bottom:0.5rem; word-break:break-all;"></div>
+            <div id="scan-progress" style="display:none; margin-bottom:0.5rem;">
               <div class="progress-bar"><div class="progress-bar__fill" id="scan-progress-fill" style="width:100%"></div></div>
             </div>
-            <div id="parts-container" style="margin-top: 0.75rem;">
+            <div id="quantity-summary" class="quantity-summary" style="display:none;"></div>
+            <div id="parts-container">
               <div class="empty-state">
                 <div class="empty-state__icon">📂</div>
-                <div class="empty-state__text">Enter a date and click Scan<br/>to discover STL parts</div>
+                <div class="empty-state__text">Enter a date (e.g. 10.09.2026)<br/>or paste a folder path above, then Scan</div>
               </div>
             </div>
           </div>
@@ -74,16 +130,90 @@
             </span>
           </div>
           <div class="card__body">
-            <div class="strategy-toggle" id="strategy-toggle">
-              <button class="strategy-toggle__option strategy-toggle__option--active"
-                      data-mode="auto" id="strat-auto">Auto</button>
-              <button class="strategy-toggle__option"
-                      data-mode="2d" id="strat-2d">2D Flat</button>
-              <button class="strategy-toggle__option"
-                      data-mode="3d" id="strat-3d">3D Pack</button>
+            <div id="strategy-info" style="font-size: 0.75rem; color: var(--text-muted);">
+              <strong>Auto</strong> — Tactician selects based on batch geometry &amp; homogeneity.
             </div>
-            <div id="strategy-info" style="margin-top: 0.6rem; font-size: 0.75rem; color: var(--text-muted);">
-              <strong>Auto</strong> — Tactician selects based on batch geometry & homogeneity.
+          </div>
+        </div>
+
+        <!-- Plate Spacing Card -->
+        <div class="card" id="card-spacing">
+          <div class="card__header">
+            <span class="card__title">
+              <span class="card__title-icon">📏</span> Spacing — Plate Layout
+            </span>
+            <span class="card__badge" id="spacing-badge">2.0 mm</span>
+          </div>
+          <div class="card__body">
+            <div class="slider-row">
+              <label class="slider-row__label" for="clearance-range">
+                Part gap
+                <span class="slider-row__value" id="clearance-value">2.0 mm</span>
+              </label>
+              <input type="range" class="slider" id="clearance-range"
+                     min="0.3" max="20" step="0.1" value="2" />
+              <div class="slider-row__hint">
+                Minimum distance between parts. 2.0 mm is the production default;
+                below 1.5 mm, watch prong clearance on the plate.
+              </div>
+            </div>
+
+            <div class="slider-row">
+              <label class="slider-row__label" for="border-range">
+                Edge margin
+                <span class="slider-row__value" id="border-value">3.0 mm</span>
+              </label>
+              <input type="range" class="slider" id="border-range"
+                     min="0" max="20" step="0.5" value="3" />
+              <div class="slider-row__hint">Keep-out band at the platform edge.</div>
+            </div>
+
+            <!-- 3D only: vertical gap between stacked tiers -->
+            <div class="slider-row slider-row--3d" id="layer-gap-row">
+              <label class="slider-row__label" for="layer-gap-range">
+                Tier gap <span class="slider-row__tag">3D</span>
+                <span class="slider-row__value" id="layer-gap-value">3.0 mm</span>
+              </label>
+              <input type="range" class="slider" id="layer-gap-range"
+                     min="0.3" max="20" step="0.1" value="3" />
+              <div class="slider-row__hint">
+                Vertical clearance between stacked tiers. Support wax fills this gap and
+                has to wash back out, so keep it wider than the part gap.
+              </div>
+            </div>
+
+            <!-- 3D only: how tall a stacked plate may get before parts move to the next -->
+            <div class="slider-row slider-row--3d" id="max-height-row">
+              <label class="slider-row__label" for="max-height-range">
+                Max plate height <span class="slider-row__tag">3D</span>
+                <span class="slider-row__value" id="max-height-value">60 mm</span>
+              </label>
+              <input type="range" class="slider" id="max-height-range"
+                     min="20" max="100" step="5" value="60" />
+              <div class="preset-row preset-row--tight" id="height-preset-row">
+                <button class="preset preset--active" data-height="60">60 Default</button>
+                <button class="preset" data-height="75">75</button>
+                <button class="preset" data-height="90">90 Safe</button>
+                <button class="preset" data-height="100">100 Max</button>
+              </div>
+              <div class="slider-row__hint" id="max-height-hint">
+                Taller stacks are harder to wash support wax out of. Parts that will not fit
+                under this height move to the next plate.
+              </div>
+            </div>
+
+            <div class="preset-row" id="preset-row">
+              <button class="preset" data-clearance="0.3">0.3 Dense</button>
+              <button class="preset" data-clearance="1.5">1.5 Tight</button>
+              <button class="preset preset--active" data-clearance="2">2.0 Standard</button>
+              <button class="preset" data-clearance="4">4.0 Safe</button>
+            </div>
+
+            <div class="fit-preview" id="fit-preview">
+              <div class="fit-preview__bar">
+                <div class="fit-preview__fill" id="fit-fill" style="width:0%"></div>
+              </div>
+              <div class="fit-preview__text" id="fit-text">Scan a folder to estimate plate fit</div>
             </div>
           </div>
         </div>
@@ -127,28 +257,20 @@
           <div class="card__body">
             <div class="plate-tabs" id="plate-tabs"></div>
             <div id="plate-info" style="font-size: 0.75rem; color: var(--text-secondary);"></div>
-          </div>
-        </div>
-
-        <!-- Action Toolbar -->
-        <div class="action-bar" id="action-bar">
-          <button class="btn btn--primary" id="btn-pack" disabled>
-            ⚡ Run Plate Pack
-          </button>
-          <button class="btn btn--gold" id="btn-open-netfabb" disabled>
-            🖥️ Open in Netfabb
-          </button>
-          <div style="display: flex; gap: 0.5rem;">
-            <button class="btn btn--secondary" id="btn-download" disabled style="flex:1;">
-              💾 Export STL
-            </button>
-            <button class="btn btn--secondary" id="btn-manifest" disabled style="flex:1;">
-              📋 Manifest
-            </button>
+            <!-- Build evidence: does this plate actually contain geometry? -->
+            <div class="build-status" id="build-status" style="display:none;">
+              <div class="build-status__row">
+                <span class="build-status__badge" id="build-badge">—</span>
+                <span class="build-status__engine" id="build-engine"></span>
+              </div>
+              <div class="build-status__facts" id="build-facts"></div>
+              <div class="build-status__reason" id="build-reason" style="display:none;"></div>
+            </div>
           </div>
         </div>
 
       </aside>
+      </div>
 
       <!-- ── 3D Viewport ───────────────────────────────────── -->
       <section class="viewport-area" id="viewport-area">
@@ -159,6 +281,11 @@
           <button class="btn btn--small" id="view-top" title="Top-down view">Top</button>
           <button class="btn btn--small" id="view-front" title="Front view">Front</button>
           <button class="btn btn--small" id="view-reset" title="Reset camera">Reset</button>
+          <span class="viewport-toolbar__divider"></span>
+          <button class="btn btn--small btn--active" id="toggle-bbox"
+                  title="Show each model's bounding box">◻ Bounding boxes</button>
+          <button class="btn btn--small" id="toggle-solid"
+                  title="Show solid part volumes">◼ Solids</button>
         </div>
 
         <!-- Three.js Canvas -->
@@ -172,6 +299,12 @@
           <div class="viewport-info__chip" id="info-parts">
             🔩 0 parts
           </div>
+          <div class="viewport-info__chip" id="info-source">
+            👁 Preview layout
+          </div>
+          <div class="viewport-info__chip" id="info-usage">
+            ▦ — % used
+          </div>
         </div>
 
         <!-- 3D Tooltip -->
@@ -179,6 +312,7 @@
           <div class="tooltip-3d__title" id="tooltip-title">Part Name</div>
           <div class="tooltip-3d__row" id="tooltip-dims">Size: — × — × — mm</div>
           <div class="tooltip-3d__row" id="tooltip-pos">Pos: (—, —, —)</div>
+          <div class="tooltip-3d__row" id="tooltip-bbox">Box X: — Y: — Z: —</div>
         </div>
 
       </section>
@@ -198,12 +332,38 @@
     </div>
   </div>
 
+  <!-- Height-cap decision: shown when respecting the cap would cost an extra plate.
+       Both options are costed from a plan, before any merging, so answering is cheap. -->
+  <div class="manifest-overlay" id="cap-overlay">
+    <div class="manifest-modal cap-modal">
+      <div class="manifest-modal__title">
+        <span>📐 <span id="cap-plate-name">Plate</span> exceeds the height limit</span>
+      </div>
+      <p class="cap-modal__lead" id="cap-lead"></p>
+      <div class="cap-options">
+        <button class="cap-option cap-option--keep" id="cap-choice-split">
+          <div class="cap-option__head">Respect the limit</div>
+          <div class="cap-option__figure" id="cap-split-height">—</div>
+          <div class="cap-option__detail" id="cap-split-detail"></div>
+          <div class="cap-option__note">Easier to clean · more plates</div>
+        </button>
+        <button class="cap-option cap-option--exceed" id="cap-choice-exceed">
+          <div class="cap-option__head">Allow it taller</div>
+          <div class="cap-option__figure" id="cap-exceed-height">—</div>
+          <div class="cap-option__detail" id="cap-exceed-detail"></div>
+          <div class="cap-option__note">Fewer plates · harder to clean</div>
+        </button>
+      </div>
+      <div class="cap-modal__foot" id="cap-timeout-note"></div>
+    </div>
+  </div>
+
   <!-- Toast Container -->
   <div class="toast-container" id="toast-container"></div>
 
-  <!-- Three.js via CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.164.1/examples/js/controls/OrbitControls.js"></script>
+  <!-- Three.js (Local Vendored with CDN Fallback) -->
+  <script src="/static/three.min.js"></script>
+  <script src="/static/OrbitControls.js"></script>
 
   <!-- Application Logic -->
   <script src="/static/app.js"></script>
